@@ -7,3 +7,4 @@ model/
 *.safetensors
 sessions/
 sessions/
+data/temp_session.mp4
