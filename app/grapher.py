@@ -11,8 +11,10 @@ def create_emotion_chart(emotions):
     Returns a matplotlib figure
     """
 
-    # Sort emotions by value for cleaner display
-    sorted_emotions = dict(sorted(emotions.items(), key=lambda x: x[1], reverse=True))
+    # Remove neutral from display — it represents uncertainty not emotion
+    display_emotions = {k: v for k, v in emotions.items() if k != 'neutral'}
+    
+    sorted_emotions = dict(sorted(display_emotions.items(), key=lambda x: x[1], reverse=True))
 
     labels = list(sorted_emotions.keys())
     values = list(sorted_emotions.values())
@@ -70,6 +72,71 @@ def create_score_chart(stress_score, confidence_score):
     ax.set_title('Stress vs Confidence Score', fontsize=14, fontweight='bold')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
+
+    plt.tight_layout()
+    return fig
+
+
+def create_timeline_chart(timeline):
+    """
+    Creates a colour coded timeline chart showing stress level over time.
+    Returns a matplotlib figure.
+    """
+    if not timeline:
+        return None
+
+    fig, ax = plt.subplots(figsize=(10, 2.5))
+
+    for window in timeline:
+        start = window['start']
+        width = window['end'] - window['start']
+        stress = window['stress_score']
+
+        # Colour by stress level
+        if stress > 65:
+            color = '#f87171'   # red — high stress
+        elif stress > 45:
+            color = '#fbbf24'   # amber — slight stress
+        else:
+            color = '#34d399'   # green — confident
+
+        ax.barh(0, width, left=start, height=0.6, color=color, edgecolor='#0a0e1a', linewidth=1)
+
+        # Add stress % label on each bar if wide enough
+        if width >= 8:
+            ax.text(
+                start + width / 2, 0,
+                f"{stress:.0f}%",
+                ha='center', va='center',
+                fontsize=8, fontweight='bold', color='white'
+            )
+
+    # Format x axis as MM:SS
+    max_time = timeline[-1]['end']
+    ax.set_xlim(0, max_time)
+    ax.set_ylim(-0.5, 0.5)
+
+    xticks = range(0, int(max_time) + 1, 10)
+    ax.set_xticks(xticks)
+    ax.set_xticklabels([
+        f"{int(t // 60):02d}:{int(t % 60):02d}" for t in xticks
+    ], fontsize=8)
+
+    ax.set_yticks([])
+    ax.set_title('Interview Timeline', fontsize=13, fontweight='bold', pad=10)
+    ax.set_xlabel('Time', fontsize=9)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+
+    # Legend
+    from matplotlib.patches import Patch
+    legend = [
+        Patch(color='#34d399', label='Confident'),
+        Patch(color='#fbbf24', label='Slight Stress'),
+        Patch(color='#f87171', label='High Stress')
+    ]
+    ax.legend(handles=legend, loc='upper right', fontsize=8, framealpha=0.3)
 
     plt.tight_layout()
     return fig
