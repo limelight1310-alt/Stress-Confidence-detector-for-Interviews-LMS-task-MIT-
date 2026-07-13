@@ -15,6 +15,8 @@ truly feel stressed, something no existing tool does.
 - Best moment card showing your peak confidence window
 - 6 MediaPipe facial behaviour signals — eye contact, brow tension, 
   lip tension, smile authenticity, head level, and face stability
+ - Custom question input — users can enter their own interview questions
+ -  one per line, or use the premade set of 13 classic and stress test questions
 
 ## The Problem
 
