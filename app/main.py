@@ -16,7 +16,7 @@ from reporter import generate_report, generate_timeline, find_stressful_moments
 from grapher import create_emotion_chart, create_score_chart, create_timeline_chart
 from recorder import save_frame, compile_video, cleanup_session_video, cleanup_clips, cleanup_frames, cleanup_timestamps
 
-QUESTIONS = [
+DEFAULT_QUESTIONS = [
     "Tell me about yourself.",
     "Why should we hire you?",
     "Walk me through your resume.",
@@ -104,6 +104,10 @@ st.markdown("""
     .live-indicator { display: inline-block; width: 8px; height: 8px; background: #f87171; border-radius: 50%; margin-right: 6px; animation: pulse 1.2s infinite; }
     @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
     .calibrating-status { font-size: 0.85rem; font-weight: 500; color: #fbbf24; margin-bottom: 0.5rem; }
+    .stTextArea textarea { background: #111827 !important; color: #e8eaf6 !important; border: 1px solid #1e2d45 !important; border-radius: 8px !important; font-size: 0.85rem !important; }
+    .stTextArea label { color: #7986a3 !important; font-size: 0.72rem !important; }
+    .stRadio label { color: #c5cde8 !important; font-size: 0.85rem !important; }
+    .stRadio div { gap: 0.5rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -127,7 +131,9 @@ for key, default in {
     "live_stress": 0.0,
     "live_confidence": 0.0,
     "live_emotion": "—",
-    "live_landmarks": {}
+    "live_landmarks": {},
+    "active_questions": DEFAULT_QUESTIONS.copy(),
+    "using_custom": False,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -139,7 +145,7 @@ st.markdown("""
 <div class="disclaimer">⚠️ This tool estimates visible facial expression signals only — it does not measure real psychological stress or confidence.</div>
 """, unsafe_allow_html=True)
 
-# HOW IT WORKS — always visible above buttons
+# HOW IT WORKS
 st.markdown('<div class="section-label">How it works</div>', unsafe_allow_html=True)
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -148,6 +154,38 @@ with col2:
     st.markdown('<div class="guide-card"><div class="guide-icon">🎯</div><div class="guide-step-title">Step 2 — Practice</div><div class="guide-step-text">Answer the interview question on screen. Speak naturally for at least 60 seconds</div></div>', unsafe_allow_html=True)
 with col3:
     st.markdown('<div class="guide-card"><div class="guide-icon">📊</div><div class="guide-step-title">Step 3 — Review</div><div class="guide-step-text">See your stress and confidence scores, timeline, clips and personalised tips</div></div>', unsafe_allow_html=True)
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# QUESTION SETUP
+st.markdown('<div class="section-label">Interview Questions</div>', unsafe_allow_html=True)
+question_mode = st.radio(
+    "Choose your question set:",
+    ["Use premade questions", "Enter my own questions"],
+    horizontal=True,
+    label_visibility="collapsed"
+)
+
+if question_mode == "Enter my own questions":
+    st.markdown('<p style="font-size:0.75rem;color:#7986a3;margin-bottom:0.4rem">Enter one question per line. Leave blank to use premade questions.</p>', unsafe_allow_html=True)
+    custom_input = st.text_area(
+        "Your questions",
+        placeholder="Why do you want to study Computer Science?\nWhat achievement are you most proud of?\nDescribe a challenge you overcame.",
+        height=150,
+        label_visibility="collapsed"
+    )
+    if custom_input.strip():
+        custom_questions = [q.strip() for q in custom_input.strip().split('\n') if q.strip()]
+        if custom_questions:
+            st.session_state.active_questions = custom_questions
+            st.session_state.using_custom = True
+            st.markdown(f'<p style="font-size:0.72rem;color:#34d399;margin-top:0.3rem">✓ {len(custom_questions)} custom question{"s" if len(custom_questions) > 1 else ""} ready</p>', unsafe_allow_html=True)
+    else:
+        st.session_state.active_questions = DEFAULT_QUESTIONS.copy()
+        st.session_state.using_custom = False
+else:
+    st.session_state.active_questions = DEFAULT_QUESTIONS.copy()
+    st.session_state.using_custom = False
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -194,7 +232,6 @@ if stop:
 
 if st.session_state.recording:
     left_col, mid_col, right_col = st.columns([1, 2, 1])
-
     with left_col:
         live_panel = st.empty()
     with mid_col:
@@ -203,7 +240,7 @@ if st.session_state.recording:
     with right_col:
         question_panel = st.empty()
         if st.button("Next Question →", key="next_q"):
-            st.session_state.question_index = (st.session_state.question_index + 1) % len(QUESTIONS)
+            st.session_state.question_index = (st.session_state.question_index + 1) % len(st.session_state.active_questions)
 
     cap = cv2.VideoCapture(0)
 
@@ -296,13 +333,17 @@ if st.session_state.recording:
         </div>
         """, unsafe_allow_html=True)
 
-        q_index = st.session_state.question_index
+        questions = st.session_state.active_questions
+        q_index = st.session_state.question_index % len(questions)
+        current_q = questions[q_index]
         tip = QUESTION_TIPS.get(q_index, "Take a breath. Answer clearly and confidently.")
+        source_label = "Custom question" if st.session_state.using_custom else f"{q_index + 1} of {len(questions)}"
+
         question_panel.markdown(f"""
         <div class="question-panel">
             <div class="question-label">Interview Question</div>
-            <div class="question-number">{q_index + 1} of {len(QUESTIONS)}</div>
-            <div class="question-text">"{QUESTIONS[q_index]}"</div>
+            <div class="question-number">{source_label}</div>
+            <div class="question-text">"{current_q}"</div>
             <div class="question-tip">💡 {tip}</div>
         </div>
         """, unsafe_allow_html=True)
@@ -447,14 +488,12 @@ if st.session_state.report is not None:
         cleanup_session_video()
         cleanup_frames()
         cleanup_timestamps()
-        for key in ["report", "all_emotions", "all_frames_data", "show_question", "avg_landmarks",
-                    "timeline", "stressful_moments", "best_moment", "session_start_time",
-                    "recording_started", "question_index", "live_stress", "live_confidence",
-                    "live_emotion", "live_landmarks"]:
-            st.session_state[key] = {"report": None, "all_emotions": [], "all_frames_data": [],
-                "show_question": False, "avg_landmarks": {}, "timeline": [], "stressful_moments": [],
-                "best_moment": None, "session_start_time": None, "recording_started": False,
-                "question_index": 0, "live_stress": 0.0, "live_confidence": 0.0,
-                "live_emotion": "—", "live_landmarks": {}}.get(key)
-        st.session_state.frame_count = 0
+        for key, val in {
+            "report": None, "all_emotions": [], "all_frames_data": [], "frame_count": 0,
+            "show_question": False, "avg_landmarks": {}, "timeline": [], "stressful_moments": [],
+            "best_moment": None, "session_start_time": None, "recording_started": False,
+            "question_index": 0, "live_stress": 0.0, "live_confidence": 0.0,
+            "live_emotion": "—", "live_landmarks": {}
+        }.items():
+            st.session_state[key] = val
         st.rerun()
