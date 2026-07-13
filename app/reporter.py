@@ -105,8 +105,7 @@ def find_stressful_moments(timeline, all_frames_data, recording_fps=15):
     for i, window in enumerate(top_3):
         reasons = []
 
-        if window['stress_score'] > 60:
-            reasons.append(f"Stress score peaked at {window['stress_score']}%")
+        reasons.append(f"Stress score was {window['stress_score']}% during this window")
 
         if window['eye_contact_rate'] < 0.5:
             reasons.append("Poor eye contact detected")
