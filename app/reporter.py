@@ -123,8 +123,8 @@ def find_stressful_moments(timeline, all_frames_data, recording_fps=15):
         end_fmt = f"{int(window['end'] // 60):02d}:{int(window['end'] % 60):02d}"
 
         # 5 seconds padding each side
-        clip_start = max(0, window['start'] - 5)
-        clip_end = window['end'] + 5
+        clip_start = max(0, window['start'] - 2)
+        clip_end = window['end'] + 2
 
         # Pass recording fps so extraction uses correct frame rate
         clip_path = extract_clip(clip_start, clip_end, i, fps=recording_fps)

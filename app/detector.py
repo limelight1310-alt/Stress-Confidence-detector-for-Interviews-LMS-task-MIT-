@@ -11,7 +11,6 @@ face_mesh = mp_face_mesh.FaceMesh(
     refine_landmarks=True
 )
 
-# Personal calibration baselines — set during calibration phase
 calibration = {
     'done': False,
     'brow_diff_baseline': 0.0,
@@ -22,13 +21,11 @@ calibration = {
     'head_readings': []
 }
 
-# Previous frame nose position for stability
 prev_nose_x = None
 prev_nose_y = None
 
 
 def reset_calibration():
-    """Call this when a new session starts"""
     global calibration, prev_nose_x, prev_nose_y
     calibration = {
         'done': False,
@@ -44,23 +41,16 @@ def reset_calibration():
 
 
 def calibrate_frame(landmarks, width, height):
-    """
-    Collect one frame of calibration data.
-    Returns True when calibration is complete (after 30 frames)
-    """
-    # Brow difference — inner vs outer brow y position
     left_inner_brow_y = landmarks[70].y
     left_outer_brow_y = landmarks[105].y
     brow_diff = left_inner_brow_y - left_outer_brow_y
     calibration['brow_readings'].append(brow_diff)
 
-    # Lip distance
     upper_lip_y = landmarks[13].y
     lower_lip_y = landmarks[14].y
     lip_dist = abs(lower_lip_y - upper_lip_y)
     calibration['lip_readings'].append(lip_dist)
 
-    # Head tilt
     nose_y = landmarks[1].y
     forehead_y = landmarks[10].y
     chin_y = landmarks[152].y
@@ -68,7 +58,6 @@ def calibrate_frame(landmarks, width, height):
     head_tilt = nose_y - face_center
     calibration['head_readings'].append(head_tilt)
 
-    # After 30 frames set personal baselines
     if len(calibration['brow_readings']) >= 30:
         calibration['brow_diff_baseline'] = np.mean(calibration['brow_readings'])
         calibration['lip_dist_baseline'] = np.mean(calibration['lip_readings'])
@@ -80,16 +69,6 @@ def calibrate_frame(landmarks, width, height):
 
 
 def detect_face(frame, is_calibrating=False):
-    """
-    Takes a single webcam frame and calibration flag.
-    Returns:
-    - annotated_frame
-    - cropped_face
-    - is_centered
-    - face_found
-    - landmarks_data
-    - calibration_done
-    """
     global prev_nose_x, prev_nose_y
 
     height, width, _ = frame.shape
@@ -116,7 +95,6 @@ def detect_face(frame, is_calibrating=False):
         face_found = True
         landmarks = results.multi_face_landmarks[0].landmark
 
-        # Bounding box
         x_coords = [int(l.x * width) for l in landmarks]
         y_coords = [int(l.y * height) for l in landmarks]
         x = max(0, min(x_coords) - 10)
@@ -124,7 +102,6 @@ def detect_face(frame, is_calibrating=False):
         x2 = min(width, max(x_coords) + 10)
         y2 = min(height, max(y_coords) + 10)
 
-        # Orange box during calibration, green during recording
         box_color = (0, 165, 255) if is_calibrating else (0, 255, 0)
         cv2.rectangle(annotated_frame, (x, y), (x2, y2), box_color, 2)
 
@@ -135,7 +112,6 @@ def detect_face(frame, is_calibrating=False):
 
         cropped_face = frame[y:y2, x:x2]
 
-        # Centring check
         face_center_x = (x + x2) // 2
         face_center_y = (y + y2) // 2
         is_centered = (
@@ -143,23 +119,63 @@ def detect_face(frame, is_calibrating=False):
             abs(face_center_y - height // 2) < 150
         )
 
-        # If calibrating collect baseline data
         if is_calibrating and not calibration['done']:
             calibration_done = calibrate_frame(landmarks, width, height)
             return annotated_frame, cropped_face, is_centered, face_found, landmarks_data, calibration_done
 
-        # Only compute signals after calibration is done
         if calibration['done']:
             landmarks_data['signals_available'] = True
 
-            # Eye contact
+            # --- EYE CONTACT ---
+            # Use iris center vs eye corner midpoint
+            # Much stricter threshold — only true if looking directly at camera
             left_iris_x = landmarks[468].x
+            left_iris_y = landmarks[468].y
             right_iris_x = landmarks[473].x
-            left_eye_center = (landmarks[33].x + landmarks[133].x) / 2
-            right_eye_center = (landmarks[362].x + landmarks[263].x) / 2
-            left_gaze_offset = abs(left_iris_x - left_eye_center)
-            right_gaze_offset = abs(right_iris_x - right_eye_center)
-            eye_contact = (left_gaze_offset < 0.025 and right_gaze_offset < 0.025)
+            right_iris_y = landmarks[473].y
+
+            # Eye corners
+            left_eye_left_x = landmarks[33].x
+            left_eye_right_x = landmarks[133].x
+            right_eye_left_x = landmarks[362].x
+            right_eye_right_x = landmarks[263].x
+
+            # Eye top and bottom for vertical gaze
+            left_eye_top_y = landmarks[159].y
+            left_eye_bottom_y = landmarks[145].y
+            right_eye_top_y = landmarks[386].y
+            right_eye_bottom_y = landmarks[374].y
+
+            left_eye_center_x = (left_eye_left_x + left_eye_right_x) / 2
+            right_eye_center_x = (right_eye_left_x + right_eye_right_x) / 2
+            left_eye_center_y = (left_eye_top_y + left_eye_bottom_y) / 2
+            right_eye_center_y = (right_eye_top_y + right_eye_bottom_y) / 2
+
+            # Horizontal gaze offset
+            left_gaze_x = abs(left_iris_x - left_eye_center_x)
+            right_gaze_x = abs(right_iris_x - right_eye_center_x)
+
+            # Vertical gaze offset — catches looking up or down
+            left_gaze_y = abs(left_iris_y - left_eye_center_y)
+            right_gaze_y = abs(right_iris_y - right_eye_center_y)
+
+            # Both horizontal AND vertical must be within tight threshold
+            # 0.010 horizontal, 0.008 vertical — catches side glances and up/down
+            # Head tilt check — if head is down, eye contact is automatically false
+# regardless of iris position because person is reading off something
+            current_head_tilt = landmarks[1].y - ((landmarks[10].y + landmarks[152].y) / 2)
+            head_is_down = current_head_tilt > calibration['head_tilt_baseline'] + 0.008
+
+# Gaze direction check
+            gaze_straight = (
+                left_gaze_x < 0.009 and
+                right_gaze_x < 0.009 and
+                left_gaze_y < 0.008 and
+                right_gaze_y < 0.008
+                )
+
+# Eye contact is only true if head is not down AND gaze is straight
+            eye_contact = gaze_straight and not head_is_down
             landmarks_data['eye_contact'] = eye_contact
 
             eye_color = (0, 255, 0) if eye_contact else (0, 0, 255)
@@ -170,9 +186,18 @@ def detect_face(frame, is_calibrating=False):
                       (int(landmarks[473].x * width), int(landmarks[473].y * height)),
                       3, eye_color, -1)
 
-            # Brow tension compared to personal baseline
-            current_brow_diff = landmarks[70].y - landmarks[105].y
-            brow_tension = current_brow_diff > calibration['brow_diff_baseline'] + 0.012
+            # --- BROW TENSION ---
+            # Compare BOTH inner brows and use a tighter threshold
+            # Uses right brow too for better accuracy
+            left_brow_diff = landmarks[70].y - landmarks[105].y
+            right_brow_diff = landmarks[300].y - landmarks[334].y
+
+            # Tense if EITHER brow is significantly lower than baseline
+            # Threshold tightened from 0.012 to 0.006
+            brow_tension = (
+                left_brow_diff > calibration['brow_diff_baseline'] + 0.006 or
+                right_brow_diff > calibration['brow_diff_baseline'] + 0.006
+            )
             landmarks_data['brow_tension'] = brow_tension
 
             brow_color = (0, 0, 255) if brow_tension else (0, 255, 0)
@@ -180,12 +205,12 @@ def detect_face(frame, is_calibrating=False):
                       (int(landmarks[70].x * width), int(landmarks[70].y * height)),
                       4, brow_color, -1)
 
-            # Lip tension compared to personal baseline
+            # --- LIP TENSION ---
             current_lip_dist = abs(landmarks[14].y - landmarks[13].y)
             lip_tension = current_lip_dist < calibration['lip_dist_baseline'] * 0.7
             landmarks_data['lip_tension'] = lip_tension
 
-            # Authentic smile
+            # --- AUTHENTIC SMILE ---
             mouth_left_y = landmarks[61].y
             mouth_right_y = landmarks[291].y
             cheek_left_y = landmarks[117].y
@@ -197,13 +222,14 @@ def detect_face(frame, is_calibrating=False):
             authentic_smile = mouth_raised and cheeks_raised
             landmarks_data['authentic_smile'] = authentic_smile
 
-            # Head level compared to personal baseline
+            # --- HEAD LEVEL ---
+            # Stricter — catches looking down at laptop/script
             nose_y = landmarks[1].y
             forehead_y = landmarks[10].y
             chin_y = landmarks[152].y
             face_center_y_val = (forehead_y + chin_y) / 2
             current_tilt = nose_y - face_center_y_val
-            head_level = current_tilt < calibration['head_tilt_baseline'] + 0.025
+            head_level = current_tilt < calibration['head_tilt_baseline'] + 0.010
             landmarks_data['head_level'] = head_level
 
             head_color = (0, 255, 0) if head_level else (0, 165, 255)
@@ -211,12 +237,13 @@ def detect_face(frame, is_calibrating=False):
                       (int(landmarks[1].x * width), int(landmarks[1].y * height)),
                       5, head_color, -1)
 
-            # Face stability
+            # --- FACE STABILITY ---
+            # Much stricter — catches key fidgeting and restlessness
             current_nose_x = landmarks[1].x
             current_nose_y = landmarks[1].y
             if prev_nose_x is not None:
                 movement = abs(current_nose_x - prev_nose_x) + abs(current_nose_y - prev_nose_y)
-                landmarks_data['face_stable'] = movement < 0.015
+                landmarks_data['face_stable'] = movement < 0.006
             prev_nose_x = current_nose_x
             prev_nose_y = current_nose_y
 

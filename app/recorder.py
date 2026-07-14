@@ -14,11 +14,6 @@ def ensure_dirs():
 
 
 def save_frame(frame, frame_index, elapsed_time):
-    """
-    Save one webcam frame as a jpg file.
-    Also write the frame index and its timestamp to a text file.
-    This lets us find exactly which frames correspond to any time range.
-    """
     ensure_dirs()
     frame_path = os.path.join(FRAMES_DIR, f'frame_{frame_index:06d}.jpg')
     cv2.imwrite(frame_path, frame)
@@ -27,14 +22,27 @@ def save_frame(frame, frame_index, elapsed_time):
 
 
 def compile_video(fps=15):
-    """
-    After recording stops, combine all saved jpg frames into one mp4 video.
-    Frames are named frame_000001.jpg, frame_000002.jpg etc so they sort correctly.
-    """
     ensure_dirs()
     frames = sorted([f for f in os.listdir(FRAMES_DIR) if f.endswith('.jpg')])
     if not frames:
         return False
+
+    # Calculate actual FPS from timestamps file
+    actual_fps = fps
+    if os.path.exists(TIMESTAMPS_PATH):
+        with open(TIMESTAMPS_PATH, 'r') as f:
+            lines = [l.strip() for l in f.readlines() if l.strip()]
+        if len(lines) >= 2:
+            try:
+                first_time = float(lines[0].split(',')[1])
+                last_time = float(lines[-1].split(',')[1])
+                duration = last_time - first_time
+                if duration > 0:
+                    actual_fps = len(lines) / duration
+                    actual_fps = min(actual_fps, 30)
+                    actual_fps = max(actual_fps, 1)
+            except Exception:
+                actual_fps = fps
 
     first = cv2.imread(os.path.join(FRAMES_DIR, frames[0]))
     if first is None:
@@ -42,7 +50,7 @@ def compile_video(fps=15):
 
     height, width, _ = first.shape
     fourcc = cv2.VideoWriter_fourcc(*'avc1')
-    out = cv2.VideoWriter(VIDEO_PATH, fourcc, fps, (width, height))
+    out = cv2.VideoWriter(VIDEO_PATH, fourcc, actual_fps, (width, height))
 
     for frame_file in frames:
         frame = cv2.imread(os.path.join(FRAMES_DIR, frame_file))
@@ -55,18 +63,11 @@ def compile_video(fps=15):
 
 
 def extract_clip(start_time, end_time, clip_index, fps=15):
-    """
-    Extract a short clip from the session video.
-    Uses the timestamps.txt file to find exactly which frames
-    fall between start_time and end_time seconds.
-    """
     if not os.path.exists(VIDEO_PATH):
         return None
     if not os.path.exists(TIMESTAMPS_PATH):
         return None
 
-    # Read the timestamp mapping file
-    # Each line is: frame_index,elapsed_time
     timestamps = {}
     with open(TIMESTAMPS_PATH, 'r') as f:
         for line in f:
@@ -78,7 +79,6 @@ def extract_clip(start_time, end_time, clip_index, fps=15):
     if not timestamps:
         return None
 
-    # Find all frame indexes that fall in our time range
     frames_in_range = sorted([
         idx for idx, t in timestamps.items()
         if start_time <= t <= end_time
@@ -87,10 +87,6 @@ def extract_clip(start_time, end_time, clip_index, fps=15):
     if not frames_in_range:
         return None
 
-    # The first frame in range = where to start in the video
-    # We need to convert frame index to position in the compiled video
-    # The compiled video has frames in order 0,1,2,3...
-    # so we need the position of our frame in the sorted list of all frames
     all_frame_indexes = sorted(timestamps.keys())
     start_position = all_frame_indexes.index(frames_in_range[0])
     end_position = all_frame_indexes.index(frames_in_range[-1]) + 1
@@ -138,7 +134,6 @@ def extract_clip(start_time, end_time, clip_index, fps=15):
 
 
 def cleanup_frames():
-    """Delete individual frame jpg files after video is compiled"""
     if os.path.exists(FRAMES_DIR):
         for f in os.listdir(FRAMES_DIR):
             if f.endswith('.jpg'):
@@ -146,20 +141,17 @@ def cleanup_frames():
 
 
 def cleanup_timestamps():
-    """Delete the timestamps mapping file"""
     if os.path.exists(TIMESTAMPS_PATH):
         os.remove(TIMESTAMPS_PATH)
 
 
 def cleanup_session_video():
-    """Delete the compiled session video"""
     if os.path.exists(VIDEO_PATH):
         os.remove(VIDEO_PATH)
     cleanup_timestamps()
 
 
 def cleanup_clips():
-    """Delete all clip files"""
     if os.path.exists(CLIPS_DIR):
         for f in os.listdir(CLIPS_DIR):
             if f.endswith('.mp4'):

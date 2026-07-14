@@ -107,7 +107,6 @@ st.markdown("""
     .stTextArea textarea { background: #111827 !important; color: #e8eaf6 !important; border: 1px solid #1e2d45 !important; border-radius: 8px !important; font-size: 0.85rem !important; }
     .stTextArea label { color: #7986a3 !important; font-size: 0.72rem !important; }
     .stRadio label { color: #c5cde8 !important; font-size: 0.85rem !important; }
-    .stRadio div { gap: 0.5rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -125,7 +124,7 @@ for key, default in {
     "stressful_moments": [],
     "best_moment": None,
     "session_start_time": None,
-    "recording_fps": 15,
+    "recording_fps": 30,
     "recording_started": False,
     "question_index": 0,
     "live_stress": 0.0,
@@ -138,14 +137,12 @@ for key, default in {
     if key not in st.session_state:
         st.session_state[key] = default
 
-# HERO
 st.markdown("""
 <div class="hero-title">Interview <span class="hero-accent">Confidence</span> Coach</div>
 <div class="hero-sub">Record your practice. See how you look. Improve before it counts.</div>
 <div class="disclaimer">⚠️ This tool estimates visible facial expression signals only — it does not measure real psychological stress or confidence.</div>
 """, unsafe_allow_html=True)
 
-# HOW IT WORKS
 st.markdown('<div class="section-label">How it works</div>', unsafe_allow_html=True)
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -157,7 +154,6 @@ with col3:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# QUESTION SETUP
 st.markdown('<div class="section-label">Interview Questions</div>', unsafe_allow_html=True)
 question_mode = st.radio(
     "Choose your question set:",
@@ -167,13 +163,8 @@ question_mode = st.radio(
 )
 
 if question_mode == "Enter my own questions":
-    st.markdown('<p style="font-size:0.75rem;color:#7986a3;margin-bottom:0.4rem">Enter one question per line. Leave blank to use premade questions.</p>', unsafe_allow_html=True)
-    custom_input = st.text_area(
-        "Your questions",
-        placeholder="Why do you want to study Computer Science?\nWhat achievement are you most proud of?\nDescribe a challenge you overcame.",
-        height=150,
-        label_visibility="collapsed"
-    )
+    st.markdown('<p style="font-size:0.75rem;color:#7986a3;margin-bottom:0.4rem">Enter one question per line.</p>', unsafe_allow_html=True)
+    custom_input = st.text_area("Your questions", placeholder="Why do you want to study Computer Science?\nWhat achievement are you most proud of?", height=150, label_visibility="collapsed")
     if custom_input.strip():
         custom_questions = [q.strip() for q in custom_input.strip().split('\n') if q.strip()]
         if custom_questions:
@@ -189,7 +180,6 @@ else:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# BUTTONS
 col_start, col_stop = st.columns(2)
 with col_start:
     start = st.button("▶ Start Recording")
@@ -214,7 +204,7 @@ if start:
     st.session_state.stressful_moments = []
     st.session_state.best_moment = None
     st.session_state.session_start_time = None
-    st.session_state.recording_fps = 15
+    st.session_state.recording_fps = 30
     st.session_state.recording_started = False
     st.session_state.question_index = 0
     st.session_state.live_stress = 0.0
@@ -243,6 +233,7 @@ if st.session_state.recording:
             st.session_state.question_index = (st.session_state.question_index + 1) % len(st.session_state.active_questions)
 
     cap = cv2.VideoCapture(0)
+    raw_frame_count = 0
 
     while st.session_state.recording:
         ret, frame = cap.read()
@@ -262,12 +253,15 @@ if st.session_state.recording:
         else:
             if not st.session_state.recording_started:
                 actual_fps = cap.get(cv2.CAP_PROP_FPS)
-                actual_fps = actual_fps if actual_fps > 0 and actual_fps <= 60 else 15
+                actual_fps = actual_fps if actual_fps > 0 and actual_fps <= 60 else 30
                 st.session_state.recording_fps = actual_fps
                 st.session_state.recording_started = True
 
             elapsed = time.time() - st.session_state.session_start_time if st.session_state.session_start_time else 0
-            save_frame(frame, st.session_state.frame_count, elapsed)
+
+            # Save every raw frame immediately regardless of face detection
+            save_frame(frame, raw_frame_count, elapsed)
+            raw_frame_count += 1
 
             if not face_found:
                 status_box.markdown('<div class="recording-status">⚠️ No face detected — look at the camera</div>', unsafe_allow_html=True)
@@ -369,14 +363,14 @@ def process_results(user_feels_stressed):
     }
     st.session_state.avg_landmarks = avg_landmarks
     st.session_state.report = generate_report(averaged, user_feels_stressed, len(st.session_state.all_emotions), avg_landmarks)
-    timeline = generate_timeline(st.session_state.all_frames_data, window_size=5)
+    timeline = generate_timeline(st.session_state.all_frames_data, window_size=2)
     st.session_state.timeline = timeline
     if timeline:
         moments = find_stressful_moments(timeline, st.session_state.all_frames_data, st.session_state.recording_fps)
         st.session_state.stressful_moments = moments
         best_window = min(timeline, key=lambda x: x['stress_score'])
-        clip_start = max(0, best_window['start'] - 5)
-        clip_end = best_window['end'] + 5
+        clip_start = max(0, best_window['start'] - 2)
+        clip_end = best_window['end'] + 2
         from recorder import extract_clip
         best_clip = extract_clip(clip_start, clip_end, 99, fps=st.session_state.recording_fps)
         start_fmt = f"{int(best_window['start'] // 60):02d}:{int(best_window['start'] % 60):02d}"
